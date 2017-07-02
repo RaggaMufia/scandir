@@ -1,0 +1,8 @@
+create table if not exists uber_table (
+[id] integer primary key autoincrement,
+[Run] text,
+[data processed/analyzed] text,
+[lane] text,
+[mid] text,
+[uber_consensus] text
+);

@@ -1,0 +1,9 @@
+create table if not exists group_table (
+[id] integer primary key autoincrement,
+[Run] text,
+[data processed/analyzed] text,
+[lane] text,
+[mid] text,
+[groupID] integer default 0,
+[group_consensus] text
+);

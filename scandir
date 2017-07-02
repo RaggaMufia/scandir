@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+
+####################################################
+# Specify your paths here:
+
+from_data_path=/home/lykrysh/Data/march_2015/
+
+from_data_dirtype=1 
+#from_data_dirtype=2
+#from_data_dirtype=3 
+
+to_csv_path=${from_data_path::-1}_summary/
+rundate=201503
+filtered=no
+num_gr_contaminated=0
+
+####################################################
+timestamp=$(date +"%Y%m%d")_$(date +"%H%M")
+
+if [[ ${1} =~ --with-no-* ]]; then
+	to_csv_filename=unfiltered_$timestamp
+else
+	to_csv_filename=filtered_$timestamp
+fi
+
+mkdir -p $to_csv_path
+sqlite3 $to_csv_path$to_csv_filename.db < sql/mutation_table
+sqlite3 $to_csv_path$to_csv_filename.db < sql/group_table
+sqlite3 $to_csv_path$to_csv_filename.db < sql/uber_table
+smplid=
+
+function scandir() {
+	for file in $(ls "$1" | sort -V)
+	do
+		if [[ -d ${1}/${file} ]]; then
+			case "$2" in
+			1)
+				if [[ ${file} =~ [0-9]+_[0-9]+ ]]; then
+					lane=${file##*_}
+					mid=${file%_*}
+					grps_raw=0
+				fi
+				;;
+			2)
+				if [[ ${file} =~ run[0-9]+ ]]; then
+					lane=${file##*n}
+				fi
+				if [[ ${file} =~ [MID]?[0-9]+$ ]]; then
+					mid=${file##*D}
+					grps_raw=0
+				fi
+				;;
+			3)
+				if [[ ${file} =~ lane_[0-9]+ ]]; then
+					lane=${file##*_}
+				fi
+				if [[ ${file} =~ ^[0-9]+$ ]]; then
+					mid=${file}
+					grps_raw=0
+				fi
+				;;
+			*)	;;
+			esac
+			scandir "${1}/${file}" "$2"
+
+		elif [[ ${1}/${file} =~ consgroup[0-9]+.fna ]]; then
+			thisfile=${1}/${file}
+			grpid=${thisfile##*p}
+			grpid=${grpid%.*}
+			grpconsensus=$(sed "6q;d" ${thisfile});
+
+			if (( "$grpid" == 1 )); then
+				ubrconsensus=$(sed "4q;d" ${thisfile});
+
+				sqlite3 $to_csv_path$to_csv_filename.db << EOS
+				insert into uber_table values (null, '$rundate', '$(date +"%Y%m%d")', $lane, $mid, '$ubrconsensus');
+EOS
+
+			fi
+
+			sqlite3 $to_csv_path$to_csv_filename.db << EOS
+			insert into group_table values (null, '$rundate', '$(date +"%Y%m%d")', $lane, $mid, $grpid, '$grpconsensus');
+EOS
+
+		elif [[ ${1}/${file} =~ group[0-9]+.fna ]]  && ! [[ ${1}/${file} =~ con* ]]; then
+			count=$(echo $(grep '>' ${1}/${file} | wc -l ))
+			if (( "$count" >= 5 )); then
+				(( grps_raw++ ))
+			fi
+
+		elif [[ ${1}/${file} =~ output.txt ]]; then
+			temp=${to_csv_path}temp_$timestamp
+			echo $rundate > $temp
+			echo $(date +"%Y%m%d") >> $temp
+			echo $filtered >> $temp
+			echo $lane >> $temp
+			echo $mid >> $temp
+			(( smplid++ ))
+			./scan $to_csv_path$to_csv_filename.db ${1}/${file} $temp $grps_raw $num_gr_contaminated >> ${to_csv_path}groups_with_true_mut_subst_only_$timestamp $smplid
+			rm -f $temp
+		fi
+	done
+}
+
+scandir $from_data_path $from_data_dirtype
+sqlite3 -header -csv $to_csv_path$to_csv_filename.db "select * from mutation_table;" > ${to_csv_path}${to_csv_filename}.csv
+sqlite3 -header -csv $to_csv_path$to_csv_filename.db "select * from group_table;" > ${to_csv_path}${to_csv_filename}_group.csv
+sqlite3 -header -csv $to_csv_path$to_csv_filename.db "select * from uber_table;" > ${to_csv_path}${to_csv_filename}_uber.csv
+#rm -f $to_csv_path$to_csv_filename.db
+exit 0

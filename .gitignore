@@ -1,0 +1,5 @@
+scan
+*.db
+*.o
+testfiles/*
+
